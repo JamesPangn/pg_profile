@@ -808,6 +808,7 @@ CREATE TABLE sample_statements_total (
       REFERENCES sample_stat_database(server_id, sample_id, datid) ON DELETE CASCADE
 );
 COMMENT ON TABLE sample_statements_total IS 'Aggregated stats for sample, based on pg_stat_statements';
+
 CREATE TABLE wait_sampling_total(
     server_id           integer,
     sample_id           integer,
@@ -821,6 +822,23 @@ CREATE TABLE wait_sampling_total(
     CONSTRAINT fk_wait_sampling_samples FOREIGN KEY (server_id, sample_id)
       REFERENCES samples(server_id, sample_id) ON DELETE CASCADE
 );
+COMMENT ON TABLE sample_statements_total IS 'Aggregated stats for wait events, based on pg_wait_sampling';
+
+CREATE TABLE wait_sampling_total_ash(
+    server_id           integer,
+    sample_id           integer,
+    sample_wevnt_id     integer,
+    event_type          text NOT NULL,
+    event               text NOT NULL,
+    tot_waited          bigint NOT NULL,
+    stmt_waited         bigint,
+    CONSTRAINT pk_sample_ash_weid PRIMARY KEY (server_id, sample_id, sample_wevnt_id),
+    CONSTRAINT uk_sample_ash_we UNIQUE (server_id, sample_id, event_type, event),
+    CONSTRAINT fk_wait_sampling_ash FOREIGN KEY (server_id, sample_id)
+      REFERENCES samples(server_id, sample_id) ON DELETE CASCADE
+);
+COMMENT ON TABLE wait_sampling_total_ash IS 'Aggregated stats for wait events, based on PGASH';
+
 /* ==== rusage statements history tables ==== */
 CREATE TABLE sample_kcache (
     server_id           integer,
@@ -5153,8 +5171,7 @@ main();$js$
   '<H1>Postgres profile report ({properties:start1_id} -'
   '{properties:end1_id})</H1>'
   '{static:version}'
-  '<p>Server name: <strong>{properties:server_name}</strong></p>'
-  '{properties:server_description}'
+  '<p>Server name: <strong>{properties:server_name} - {properties:server_description}</strong></p>'
   '<p>Report interval: <strong>{properties:report_start1} -'
   ' {properties:report_end1}</strong></p>'
   '{properties:description}'
@@ -5174,8 +5191,7 @@ main();$js$
   ' {properties:end1_id}) with (2): ({properties:start2_id} -'
   ' {properties:end2_id})</H1>'
   '{static:version}'
-  '<p>Server name: <strong>{properties:server_name}</strong></p>'
-  '{properties:server_description}'
+  '<p>Server name: <strong>{properties:server_name} - {properties:server_description}</strong></p>'
   '<p>First interval (1): <strong>{properties:report_start1} -'
   ' {properties:report_end1}</strong></p>'
   '<p>Second interval (2): <strong>{properties:report_start2} -'
@@ -5736,6 +5752,34 @@ VALUES
           '{"id": "event", "class": "table_obj_name", "caption": "Wait event"}, '
           '{"id": "tot_waited", "class": "table_obj_value", "title": "Time, waited in event by all backends (including background activity) in seconds", "caption": "Waited (s)"}, '
           '{"id": "tot_waited_pct", "class": "table_obj_value", "title": "Time, waited in event by all backends as a percentage of total time waited in a cluster by all backends (including background activity)", "caption": "%Total"}'
+  ']}]'::jsonb),
+(1, 'wait_sampling_srvstats_ash', 'srvstat', 1500, 'Wait sampling(ASH)', 'Wait sampling(ASH)', 'wait_sampling_tot_ash', NULL, 'wait_info', NULL, NULL),
+(1, 'wait_sampling_total_ash', 'wait_sampling_srvstats_ash', 100, 'Wait events types', 'Wait events types', 'wait_sampling_tot_ash', NULL, 'wait_sampling_total_ash', NULL,
+  '[{'
+      '"type": "row_table", '
+      '"class": "stat", '
+      '"source": "wait_sampling_total_stats_ash",'
+      '"ordering": "event_type_order",'
+      '"columns": ['
+          '{"id": "event_type", "class": "table_obj_name", "caption": "Wait event type"}, '
+          '{"id": "stmt_waited", "class": "table_obj_value", "title": "Counts,waited in events of wait event type executing statements in seconds", "caption": "Statements Waited"}, '
+          '{"id": "stmt_waited_pct", "class": "table_obj_value", "title": "Counts, waited in events of wait event type as a percentage of total counts waited in a cluster executing statements", "caption": "%Total"}, '
+          '{"id": "tot_waited", "class": "table_obj_value", "title": "counts, waited in events of wait event type by all backends", "caption": "All Waited"}, '
+          '{"id": "tot_waited_pct", "class": "table_obj_value", "title": "counts, waited in events of wait event type as a percentage of total waited in a cluster by all backends", "caption": "%Total"}'
+      ']}]'::jsonb),
+(1, 'wait_sampling_all_ash', 'wait_sampling_srvstats_ash', 300, 'Top wait events (All)', 'Top wait events (All)', 'wait_sampling_tot_ash', NULL, 'wt_smp_all_ash', '<p>Top wait events detected in all backends</p>',
+  '[{'
+      '"type": "row_table", '
+      '"class": "stat", '
+      '"source": "wait_sampling_events_ash",'
+      '"filter": {"type": "exists", "field": "total_filter"},'
+      '"ordering": "-tot_waited",'
+      '"limit": "topn",'
+      '"columns": ['
+          '{"id": "event_type", "class": "table_obj_name", "caption": "Wait event type"}, '
+          '{"id": "event", "class": "table_obj_name", "caption": "Wait event"}, '
+          '{"id": "tot_waited", "class": "table_obj_value", "title": "Counts, waited in event by all backends", "caption": "Waited"}, '
+          '{"id": "tot_waited_pct", "class": "table_obj_value", "title": "Counts, waited in event by all backends as a percentage of total waited in a cluster by all backends", "caption": "%Total"}'
   ']}]'::jsonb)
 ;
 
@@ -7208,6 +7252,36 @@ VALUES
           '{"id": ["1", "2"], "class": "interval", "title":["properties.timePeriod1", "properties.timePeriod2"], "caption": "I"}, '
           '{"id": ["tot_waited1", "tot_waited2"], "class": "table_obj_value", "title": "Time, waited in event by all backends (including background activity) in seconds", "caption": "Waited (s)"}, '
           '{"id": ["tot_waited_pct1", "tot_waited_pct2"], "class": "table_obj_value", "title": "Time, waited in event by all backends as a percentage of total time waited in a cluster by all backends (including background activity)", "caption": "%Total"}'
+      ']}]'::jsonb),
+(2, 'wait_sampling_srvstats_ash', 'srvstat', 1500, 'Wait sampling(ASH)', 'Wait sampling(ASH)', 'wait_sampling_tot_ash', NULL, 'wait_sampling_ash', NULL, NULL),
+(2, 'wait_sampling_total_ash', 'wait_sampling_srvstats_ash', 100, 'Wait events types', 'Wait events types', 'wait_sampling_tot_ash', NULL, 'wait_sampling_total_ash', NULL,
+  '[{'
+      '"type": "row_table", '
+      '"class": "diff", '
+      '"source": "wait_sampling_total_stats",'
+      '"ordering": "event_type_order",'
+      '"columns": ['
+          '{"id": "event_type", "class": "hdr", "caption": "Wait event type", "rowspan": true}, '
+          '{"id": ["1", "2"], "class": "interval", "title":["properties.timePeriod1", "properties.timePeriod2"], "caption": "I"}, '
+          '{"id": ["stmt_waited1", "stmt_waited2"], "class": "table_obj_value", "title": "Count, waited in events of wait event type executing statements", "caption": "Statements Waited (s)"}, '
+          '{"id": ["stmt_waited_pct1", "stmt_waited_pct2"], "class": "table_obj_value", "title": "Count, waited in events of wait event type as a percentage of total waited in a cluster executing statements", "caption": "%Total"}, '
+          '{"id": ["tot_waited1", "tot_waited2"], "class": "table_obj_value", "title": "Count, waited in events of wait event type by all backends (including background activity)", "caption": "All Waited"}, '
+          '{"id": ["tot_waited_pct1", "tot_waited_pct2"], "class": "table_obj_value", "title": "Count, waited in events of wait event type as a percentage of total waited in a cluster by all backends (including background activity)", "caption": "%Total"}'
+      ']}]'::jsonb),
+(2, 'wait_sampling_all_ash', 'wait_sampling_srvstats_ash', 300, 'Top wait events (All)', 'Top wait events (All)', 'wait_sampling_tot_ash', NULL, 'wt_smp_all_ash', '<p>Top wait events detected in all backends</p>',
+  '[{'
+      '"type": "row_table", '
+      '"class": "diff", '
+      '"source": "wait_sampling_events",'
+      '"filter": {"type": "exists", "field": "total_filter"},'
+      '"ordering": "tot_ord",'
+      '"limit": "topn",'
+      '"columns": ['
+          '{"id": "event_type", "class": "hdr", "caption": "Wait event type", "rowspan": true}, '
+          '{"id": "event", "class": "hdr", "caption": "Wait event", "rowspan": true}, '
+          '{"id": ["1", "2"], "class": "interval", "title":["properties.timePeriod1", "properties.timePeriod2"], "caption": "I"}, '
+          '{"id": ["tot_waited1", "tot_waited2"], "class": "table_obj_value", "title": "Count, waited in event by all backends (including background activity)", "caption": "Waited"}, '
+          '{"id": ["tot_waited_pct1", "tot_waited_pct2"], "class": "table_obj_value", "title": "Count, waited in event by all backends as a percentage of total waited in a cluster by all backends (including background activity)", "caption": "%Total"}'
       ']}]'::jsonb)
 ;
 
@@ -8957,7 +9031,132 @@ SET search_path=@extschema@ AS $$
 $$ LANGUAGE sql;
 COMMENT ON FUNCTION delete_samples(name, integer, integer) IS
   'Manually deletes server samples for time interval on local server';
-SELECT create_server('local','dbname='||current_database()||' port='||current_setting('port'));
+SELECT create_server('local','dbname='||current_database()||' port='||current_setting('port'),TRUE,NULL,coalesce(pg_catalog.regexp_replace(pg_read_file('/etc/hostname'),'.com.*','.com'),'localhost'));
+
+--added to manage scheduler job for take_sample()
+CREATE OR REPLACE FUNCTION create_sampling_job(IN jobname text = NULL,
+   IN schedule text = NULL, 
+   IN command text = NULL, 
+   IN database text = NULL,
+   IN username text = NULL,
+   IN active boolean = true)
+RETURNS integer SET search_path=@extschema@ AS $$
+DECLARE
+    job_name text := coalesce(jobname,'pg_profile_sampling');
+    ins_rows integer;
+BEGIN
+    IF (SELECT count(*) = 0 FROM pg_catalog.pg_extension WHERE extname = 'pg_cron') THEN
+      RAISE 'pg_cron extension must be installed';
+    END IF;
+		
+	--disable other take_sample jobs 
+	UPDATE cron.job j SET active=false WHERE j.command like '%profile.take_sample(%' and j.jobname <> job_name;
+	--insert/update pg_profile_sampling job. 
+    INSERT INTO cron.job AS j (schedule,command,nodename,nodeport,database,username,jobname,active)
+	VALUES (
+	   coalesce(schedule,'5,15,25,35,45,55 * * * *'),
+	   coalesce(command,'select profile.take_sample('||chr(39)||'local'||chr(39)||',TRUE)'),
+	   'localhost',
+	   current_setting('port')::integer,
+	   coalesce(database,current_database()),
+	   coalesce(username,'postgres'),
+	   coalesce(jobname,'pg_profile_sampling'),
+	   coalesce(active,true)
+	   )
+	ON CONFLICT ON CONSTRAINT jobname_username_uniq
+	DO UPDATE SET schedule = coalesce(EXCLUDED.schedule,'5,15,25,35,45,55 * * * *'), 
+	   command = coalesce(EXCLUDED.command,'select profile.take_sample('||chr(39)||'local'||chr(39)||',TRUE)'), 
+	   nodename = 'localhost', 
+	   nodeport = current_setting('port')::integer, 
+	   database = coalesce(EXCLUDED.database,current_database()), 
+	   username = coalesce(EXCLUDED.username,'postgres'),
+	   active = coalesce(EXCLUDED.active,true)
+    WHERE j.jobname=job_name;   
+                   	
+    GET DIAGNOSTICS ins_rows = ROW_COUNT;
+    RETURN ins_rows;
+END;
+$$ LANGUAGE plpgsql;
+COMMENT ON FUNCTION create_sampling_job(IN jobname text,IN schedule text,IN command text,IN database text,IN username text,IN active boolean) IS 
+ 'create pg_cron job to take_sample';
+
+CREATE OR REPLACE FUNCTION update_sampling_job(IN jobname text = NULL, 
+   IN schedule text = NULL, 
+   IN command text = NULL, 
+   IN database text = NULL,
+   IN username text = NULL,
+   IN active boolean = true)
+RETURNS integer SET search_path=@extschema@ AS $$
+DECLARE
+    upd_rows integer;	
+BEGIN
+	upd_rows := create_sampling_job(jobname::text,schedule::text,command::text,database::text,username::text,active::boolean);
+    RETURN upd_rows;
+END;
+$$ LANGUAGE plpgsql;
+
+COMMENT ON FUNCTION update_sampling_job(IN jobname text,IN schedule text,IN command text,IN database text,IN username text,IN active boolean) IS 
+ 'update pg_profile_sampling job, disable,enable,change jobname';
+
+CREATE OR REPLACE FUNCTION drop_sampling_job(IN jobname text = NULL)
+RETURNS integer SET search_path=@extschema@ AS $$
+DECLARE
+    del_rows integer;	
+BEGIN
+	IF jobname IS NULL THEN
+	   delete from cron.job j where j.command like '%take_sample(%';
+	ELSE
+	   delete from cron.job j where j.jobname = drop_sampling_job.jobname;
+	END IF;
+	GET DIAGNOSTICS del_rows := ROW_COUNT;
+    RETURN del_rows;
+END;
+$$ LANGUAGE plpgsql;
+COMMENT ON FUNCTION drop_sampling_job(IN jobname text) IS 'drop pg_profile_sampling job';
+
+CREATE OR REPLACE FUNCTION show_sampling_jobs()
+RETURNS TABLE(jobname text, schedule text, command text, active boolean)
+SET search_path=@extschema@ AS $$
+   SELECT j.jobname, j.schedule, j.command, j.active 
+   FROM cron.job j WHERE j.command like '%profile.take_sample%';
+$$ LANGUAGE sql;
+
+COMMENT ON FUNCTION show_sampling_jobs() IS 'Displays all take_sample jobs';
+
+--FIPS mode security enhancements 
+
+CREATE OR REPLACE FUNCTION updates_for_fips()
+RETURNS void 
+SET search_path=@extschema@,public AS $$
+DECLARE
+    etext               text := '';
+    edetail             text := '';
+    econtext            text := '';	
+BEGIN
+	IF  (pg_catalog.regexp_match(pg_read_file('/proc/sys/crypto/fips_enabled'),'^[0-1]'))[1] = '1' THEN
+	    execute 'alter table last_stat_statements alter column queryid_md5 TYPE character(40)';
+        execute 'alter table sample_statements alter column queryid_md5 TYPE character(40)';
+        execute 'alter table stmt_list alter column queryid_md5 TYPE character(40)';
+        execute 'alter table sample_kcache alter column queryid_md5 TYPE character(40)';
+        
+		execute 'create extension if not exists pgcrypto schema public';
+		
+		execute $q$CREATE OR REPLACE FUNCTION pg_catalog.md5fips(text) returns text AS $fips$
+		               SELECT encode(digest($1, 'sha1'), 'hex')
+                   $fips$ LANGUAGE SQL STRICT IMMUTABLE$q$;	
+		execute $q$CREATE OR REPLACE FUNCTION pg_catalog.md5fips(bytea) returns text AS $fips$
+					 SELECT encode(digest($1, 'sha1'), 'hex')
+				   $fips$ LANGUAGE SQL STRICT IMMUTABLE$q$;
+        execute 'alter function pg_catalog.md5(bytea) rename to md5origin';
+        execute 'alter function pg_catalog.md5(text) rename to md5origin';	
+        execute 'alter function pg_catalog.md5fips(bytea) rename to md5';
+        execute 'alter function pg_catalog.md5fips(text) rename to md5';			
+    END IF;
+
+END;
+$$ LANGUAGE plpgsql;
+
+
 /* ==== Export and import functions ==== */
 
 DROP FUNCTION IF EXISTS export_data(name, integer, integer, boolean);
@@ -10700,6 +10899,74 @@ BEGIN
 
 END;
 $$ LANGUAGE plpgsql;
+
+/* pgash support */
+CREATE OR REPLACE FUNCTION collect_pg_wait_sampling_stats_ash(IN server_properties jsonb,IN sserver_id integer, IN s_id integer, IN topn integer)
+RETURNS void SET search_path=@extschema@ AS $$
+DECLARE
+  qres        record;
+  lastsmpid   int;
+  lastsmptime timestamp with time zone;
+  pgashtab    text := NULL;
+  smpinterval int := 600;
+  st_query  text;
+BEGIN
+    -- get last sample time	
+	EXECUTE $q$SELECT coalesce(sample_time) 
+	   FROM samples 
+	   WHERE server_id=$1 
+	   AND sample_id=(SELECT coalesce(max(sample_id),0) 
+	   FROM samples WHERE server_id=$2 and sample_id < $3)$q$
+	INTO lastsmptime
+	USING sserver_id,sserver_id,s_id;
+	
+	IF lastsmptime IS NULL THEN
+	   lastsmptime := to_timestamp(extract(epoch from now())-600);
+	   pgashtab := 'pgash_awr10m';
+    ELSE
+	   smpinterval := (extract(epoch from now()) - extract(epoch from lastsmptime) )::integer;
+	   CASE 
+		  WHEN smpinterval > 1802 THEN
+			 pgashtab := 'pgash_awr1h';
+		  WHEN smpinterval > 900  THEN
+			 pgashtab := 'pgash_awr30m';
+		  ELSE
+			 pgashtab := 'pgash_awr10m';
+		END CASE;
+	END IF;
+	
+    -- since we only use local collecting, we do not use dblink here and run the sql directly.
+	-- collecting raw metrcis count(wait_event) instead of count(*) * wait_sampling_period.
+  
+    EXECUTE format($q$INSERT INTO wait_sampling_total_ash(
+      server_id,
+      sample_id,
+      sample_wevnt_id,
+      event_type,
+      event,
+      tot_waited,
+      stmt_waited
+    )
+    SELECT
+    $1, 
+    $2, 
+	row_number() over () as weid,
+    dbl.wait_event_type,
+    dbl.wait_event,
+    count(*) as tot_waited,
+    count(*) FILTER (WHERE query IS NOT NULL) as stmt_waited	
+    FROM
+	%1$I.%I dbl
+	WHERE wait_event is not NULL and snaptime between $3 and now()
+	GROUP BY wait_event_type,wait_event$q$,'pgash',pgashtab)
+	USING sserver_id,s_id,lastsmptime;
+    
+	/*EXCEPTION --use take_sample function's exception.
+       WHEN OTHERS THEN
+       RAISE 'Wait sampling from ASH failed...';*/
+END;
+$$ LANGUAGE plpgsql;
+
 /* ========= Sample functions ========= */
 CREATE FUNCTION init_sample(IN sserver_id integer
 ) RETURNS jsonb SET search_path=@extschema@ SET lock_timeout=300000 AS $$
@@ -10741,7 +11008,19 @@ BEGIN
             to_jsonb(20)
           );
     END;
-
+    
+/* 	-- Getting SmpInterval setting
+    BEGIN
+        SELECT current_setting('pg_profile.smpinterval')::integer AS smpinterval INTO qres;
+        server_properties := jsonb_set(server_properties,'{properties,smpinterval}',to_jsonb(qres.smpinterval));
+    EXCEPTION
+        WHEN OTHERS THEN
+          server_properties := jsonb_set(server_properties,
+            '{properties,smpinterval}',
+            to_jsonb(600)
+          );
+    END; */
+	
     -- Adding dblink extension schema to search_path if it does not already there
     IF (SELECT count(*) = 0 FROM pg_catalog.pg_extension WHERE extname = 'dblink') THEN
       RAISE 'dblink extension must be installed';
@@ -10763,6 +11042,7 @@ BEGIN
     EXCEPTION
         WHEN OTHERS THEN RAISE 'Can''t get lock on server. Is there another take_sample() function running on this server?';
     END;
+
     IF (server_properties #>> '{collect_timings}')::boolean THEN
       server_properties := jsonb_set(server_properties,'{timings,connect}',jsonb_build_object('start',clock_timestamp()));
       server_properties := jsonb_set(server_properties,'{timings,total}',jsonb_build_object('start',clock_timestamp()));
@@ -10928,10 +11208,10 @@ BEGIN
         WHERE
           server_id = sserver_id
           AND st.relsize_diff IS NOT NULL
-          AND sample_time > now() - qres.size_smp_interval;
+          AND sample_time > now() - qres.size_smp_interval;		
       END IF;
     END IF;
-
+        
     -- Collecting postgres parameters
     /* We might refresh all parameters if version() was changed
     * This is needed for deleting obsolete parameters, not appearing in new
@@ -11471,6 +11751,20 @@ BEGIN
         WHERE extname = 'pg_wait_sampling'
       ) THEN
         PERFORM collect_pg_wait_sampling_stats(server_properties, sserver_id, s_id, topn);
+      ELSE
+        NULL;
+    END CASE;
+	
+	-- Search for pgash_dba
+    CASE
+      -- pgash_dba statistics collection
+      WHEN (
+        SELECT count(*) = 1
+        FROM pg_class
+        WHERE relname = 'pgash_dba'
+      ) THEN
+	    -- PERFORM collect_pgash_dba(server_properties, sserver_id, s_id, topn);this feature is in future plan, now only focused on top waits.
+        PERFORM collect_pg_wait_sampling_stats_ash(server_properties, sserver_id, s_id, topn);
       ELSE
         NULL;
     END CASE;
@@ -18181,6 +18475,189 @@ SET search_path=@extschema@ AS $$
     (wait_sampling_total_stats(sserver_id, start2_id, end2_id) st2 CROSS JOIN tot2)
       USING (event_type, event)
 $$ LANGUAGE sql;
+
+/* pgash reporting functions */
+CREATE OR REPLACE FUNCTION profile_checkavail_wait_sampling_total_ash(IN sserver_id integer, IN start_id integer, IN end_id integer)
+RETURNS BOOLEAN
+SET search_path=@extschema@ AS $$
+-- Check if there is table sizes collected in both bounds
+  SELECT
+    count(*) > 0
+  FROM wait_sampling_total_ash
+  WHERE
+    server_id = sserver_id
+    AND sample_id BETWEEN start_id + 1 AND end_id
+$$ LANGUAGE sql;
+
+CREATE OR REPLACE FUNCTION wait_sampling_total_stats_ash(IN sserver_id integer,
+  IN start_id integer, IN end_id integer)
+RETURNS TABLE(
+    event_type      text,
+    event           text,
+    tot_waited      numeric,
+    stmt_waited     numeric
+)
+SET search_path=@extschema@ AS $$
+    SELECT
+        st.event_type,
+        st.event,
+        sum(st.tot_waited)::numeric  AS tot_waited,
+        sum(st.stmt_waited)::numeric AS stmt_waited
+    FROM wait_sampling_total_ash st
+    WHERE st.server_id = sserver_id AND st.sample_id BETWEEN start_id + 1 AND end_id
+    GROUP BY st.event_type, st.event;
+$$ LANGUAGE sql;
+
+CREATE OR REPLACE FUNCTION wait_sampling_total_stats_ash_format(IN sserver_id integer,
+  IN start_id integer, IN end_id integer)
+RETURNS TABLE(
+  event_type        text,
+  event_type_order  bigint,
+  tot_waited        numeric,
+  tot_waited_pct    numeric,
+  stmt_waited       numeric,
+  stmt_waited_pct   numeric
+)
+SET search_path=@extschema@ AS $$
+    WITH tot AS (
+      SELECT sum(tot_waited) AS tot_waited, sum(stmt_waited) AS stmt_waited
+      FROM wait_sampling_total_stats_ash(sserver_id, start_id, end_id))
+    SELECT
+        COALESCE(event_type, 'Total'),
+        row_number() OVER (ORDER BY event_type NULLS LAST) as event_type_order,
+        round(sum(st.tot_waited), 2) as tot_waited,
+        round(sum(st.tot_waited) * 100 / NULLIF(min(tot.tot_waited),0), 2) as tot_waited_pct,
+        round(sum(st.stmt_waited), 2) as stmt_waited,
+        round(sum(st.stmt_waited) * 100 / NULLIF(min(tot.stmt_waited),0), 2) as stmt_waited_pct
+    FROM wait_sampling_total_stats_ash(sserver_id, start_id, end_id) st CROSS JOIN tot
+    GROUP BY ROLLUP(event_type)
+$$ LANGUAGE sql;
+
+CREATE OR REPLACE FUNCTION wait_sampling_total_stats_ash_format_diff(IN sserver_id integer,
+  IN start1_id integer, IN end1_id integer,
+  IN start2_id integer, IN end2_id integer)
+RETURNS TABLE(
+  event_type        text,
+  event_type_order  bigint,
+  tot_waited1       numeric,
+  tot_waited_pct1   numeric,
+  stmt_waited1      numeric,
+  stmt_waited_pct1  numeric,
+  tot_waited2       numeric,
+  tot_waited_pct2   numeric,
+  stmt_waited2      numeric,
+  stmt_waited_pct2  numeric
+)
+SET search_path=@extschema@ AS $$
+    WITH tot1 AS (
+      SELECT sum(tot_waited) AS tot_waited, sum(stmt_waited) AS stmt_waited
+      FROM wait_sampling_total_stats(sserver_id, start1_id, end1_id)),
+    tot2 AS (
+      SELECT sum(tot_waited) AS tot_waited, sum(stmt_waited) AS stmt_waited
+      FROM wait_sampling_total_stats_ash(sserver_id, start2_id, end2_id))
+    SELECT
+        COALESCE(event_type, 'Total'),
+        row_number() OVER (ORDER BY event_type NULLS LAST) as event_type_order,
+        round(sum(st1.tot_waited), 2) as tot_waited1,
+        round(sum(st1.tot_waited) * 100 / NULLIF(min(tot1.tot_waited),0), 2) as tot_waited_pct1,
+        round(sum(st1.stmt_waited), 2) as stmt_waited1,
+        round(sum(st1.stmt_waited) * 100 / NULLIF(min(tot1.stmt_waited),0), 2) as stmt_waited_pct1,
+        round(sum(st2.tot_waited), 2) as tot_waited2,
+        round(sum(st2.tot_waited) * 100 / NULLIF(min(tot2.tot_waited),0), 2) as tot_waited_pct2,
+        round(sum(st2.stmt_waited), 2) as stmt_waited2,
+        round(sum(st2.stmt_waited) * 100 / NULLIF(min(tot2.stmt_waited),0), 2) as stmt_waited_pct2
+    FROM (wait_sampling_total_stats_ash(sserver_id, start1_id, end1_id) st1 CROSS JOIN tot1)
+      FULL JOIN
+        (wait_sampling_total_stats_ash(sserver_id, start2_id, end2_id) st2 CROSS JOIN tot2)
+      USING (event_type, event)
+    GROUP BY ROLLUP(event_type)
+$$ LANGUAGE sql;
+
+CREATE OR REPLACE FUNCTION top_wait_sampling_events_ash_format(IN sserver_id integer,
+  IN start_id integer, IN end_id integer)
+RETURNS TABLE(
+  event_type        text,
+  event             text,
+  total_filter      boolean,
+  stmt_filter       boolean,
+  tot_waited        numeric,
+  tot_waited_pct    numeric,
+  stmt_waited       numeric,
+  stmt_waited_pct   numeric
+)
+SET search_path=@extschema@ AS $$
+    WITH tot AS (
+      SELECT
+        sum(tot_waited) AS tot_waited,
+        sum(stmt_waited) AS stmt_waited
+      FROM wait_sampling_total_stats_ash(sserver_id, start_id, end_id))
+    SELECT
+        event_type,
+        event,
+        COALESCE(st.tot_waited > 0, false) AS total_filter,
+        COALESCE(st.stmt_waited > 0, false) AS stmt_filter,
+        round(st.tot_waited, 2) AS tot_waited,
+        round(st.tot_waited * 100 / NULLIF(tot.tot_waited,0),2) AS tot_waited_pct,
+        round(st.stmt_waited, 2) AS stmt_waited,
+        round(st.stmt_waited * 100 / NULLIF(tot.stmt_waited,0),2) AS stmt_waited_pct
+    FROM wait_sampling_total_stats_ash(sserver_id, start_id, end_id) st CROSS JOIN tot
+$$ LANGUAGE sql;
+
+CREATE OR REPLACE FUNCTION top_wait_sampling_events_ash_format_diff(IN sserver_id integer,
+  IN start1_id integer, IN end1_id integer,
+  IN start2_id integer, IN end2_id integer)
+RETURNS TABLE(
+  event_type        text,
+  event             text,
+  total_filter      boolean,
+  stmt_filter       boolean,
+  tot_ord           bigint,
+  stmt_ord          bigint,
+  tot_waited1       numeric,
+  tot_waited_pct1   numeric,
+  tot_waited2       numeric,
+  tot_waited_pct2   numeric,
+  stmt_waited1      numeric,
+  stmt_waited_pct1  numeric,
+  stmt_waited2      numeric,
+  stmt_waited_pct2  numeric
+)
+SET search_path=@extschema@ AS $$
+    WITH tot1 AS (
+      SELECT
+        sum(tot_waited) AS tot_waited,
+        sum(stmt_waited) AS stmt_waited
+      FROM wait_sampling_total_stats_ash(sserver_id, start1_id, end1_id)),
+    tot2 AS (
+      SELECT
+        sum(tot_waited) AS tot_waited,
+        sum(stmt_waited) AS stmt_waited
+      FROM wait_sampling_total_stats_ash(sserver_id, start2_id, end2_id))
+    SELECT
+        event_type,
+        event,
+        COALESCE(st1.tot_waited, 0) + COALESCE(st2.tot_waited, 0) > 0 AS total_filter,
+        COALESCE(st1.stmt_waited, 0) + COALESCE(st2.stmt_waited, 0) > 0 AS stmt_filter,
+        row_number() OVER (ORDER BY
+           COALESCE(st1.tot_waited, 0) + COALESCE(st2.tot_waited, 0) DESC,
+           event_type, event) AS tot_ord,
+        row_number() OVER (ORDER BY
+           COALESCE(st1.stmt_waited, 0) + COALESCE(st2.stmt_waited, 0) DESC,
+           event_type, event) AS stmt_ord,
+        round(st1.tot_waited, 2) AS tot_waited1,
+        round(st1.tot_waited * 100 / NULLIF(tot1.tot_waited,0),2) AS tot_waited_pct1,
+        round(st2.tot_waited, 2) AS tot_waited2,
+        round(st2.tot_waited * 100 / NULLIF(tot2.tot_waited,0),2) AS tot_waited_pct2,
+        round(st1.stmt_waited, 2) AS stmt_waited1,
+        round(st1.stmt_waited * 100 / NULLIF(tot1.stmt_waited,0),2) AS stmt_waited_pct1,
+        round(st2.stmt_waited, 2) AS stmt_waited2,
+        round(st2.stmt_waited * 100 / NULLIF(tot2.stmt_waited,0),2) AS stmt_waited_pct2
+    FROM (wait_sampling_total_stats(sserver_id, start1_id, end1_id) st1 CROSS JOIN tot1)
+      FULL JOIN
+    (wait_sampling_total_stats(sserver_id, start2_id, end2_id) st2 CROSS JOIN tot2)
+      USING (event_type, event)
+$$ LANGUAGE sql;
+
 /* ===== Tables stats functions ===== */
 
 CREATE FUNCTION tablespace_stats(IN sserver_id integer, IN start_id integer, IN end_id integer)
@@ -19815,6 +20292,7 @@ BEGIN
         'statstatements',profile_checkavail_statstatements(sserver_id, start1_id, end1_id),
         'planning_times',profile_checkavail_planning_times(sserver_id, start1_id, end1_id),
         'wait_sampling_tot',profile_checkavail_wait_sampling_total(sserver_id, start1_id, end1_id),
+		'wait_sampling_tot_ash',profile_checkavail_wait_sampling_total_ash(sserver_id, start1_id, end1_id),
         'io_times',profile_checkavail_io_times(sserver_id, start1_id, end1_id),
         'statement_wal_bytes',profile_checkavail_stmt_wal_bytes(sserver_id, start1_id, end1_id),
         'statements_top_temp', profile_checkavail_top_temp(sserver_id, start1_id, end1_id),
@@ -19920,6 +20398,8 @@ BEGIN
           profile_checkavail_planning_times(sserver_id, start2_id, end2_id),
         'wait_sampling_tot',profile_checkavail_wait_sampling_total(sserver_id, start1_id, end1_id) OR
           profile_checkavail_wait_sampling_total(sserver_id, start2_id, end2_id),
+		'wait_sampling_tot_ash',profile_checkavail_wait_sampling_total_ash(sserver_id, start1_id, end1_id) OR
+          profile_checkavail_wait_sampling_total_ash(sserver_id, start2_id, end2_id)
         'io_times',profile_checkavail_io_times(sserver_id, start1_id, end1_id) OR
           profile_checkavail_io_times(sserver_id, start2_id, end2_id),
         'statement_wal_bytes',profile_checkavail_stmt_wal_bytes(sserver_id, start1_id, end1_id) OR
@@ -20042,10 +20522,7 @@ BEGIN
     IF r_result.server_description IS NOT NULL AND r_result.server_description != ''
     THEN
       report_context := jsonb_set(report_context, '{report_properties,server_description}',
-        to_jsonb(format(
-          '<p>%s</p>',
-          r_result.server_description
-        ))
+        to_jsonb(r_result.server_description)
       );
     ELSE
       report_context := jsonb_set(report_context, '{report_properties,server_description}',to_jsonb(''::text));
@@ -20316,7 +20793,29 @@ BEGIN
       END LOOP;
       datasets := jsonb_set(datasets, '{wait_sampling_events}', dataset);
     END IF;
-
+    
+	--added pgash - wait events section 
+    IF (report_context #> '{report_features,wait_sampling_tot_ash}')::boolean THEN
+      -- Wait totals dataset
+      dataset := '[]'::jsonb;
+      FOR r_result IN (
+          SELECT *
+          FROM wait_sampling_total_stats_ash_format(sserver_id, start1_id, end1_id)
+        ) LOOP
+        dataset := dataset || to_jsonb(r_result);
+      END LOOP;
+      datasets := jsonb_set(datasets, '{wait_sampling_total_stats_ash}', dataset);
+      -- Wait events dataset
+      dataset := '[]'::jsonb;
+      FOR r_result IN (
+          SELECT *
+          FROM top_wait_sampling_events_ash_format(sserver_id, start1_id, end1_id)
+        ) LOOP
+        dataset := dataset || to_jsonb(r_result);
+      END LOOP;
+      datasets := jsonb_set(datasets, '{wait_sampling_events_ash}', dataset);
+    END IF;
+	
     IF (report_context #> '{report_features,statstatements}')::boolean THEN
       -- Statement stats dataset
       dataset := '[]'::jsonb;
